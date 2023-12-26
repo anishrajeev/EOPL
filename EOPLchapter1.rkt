@@ -511,3 +511,38 @@ y shows up both bound and free
                                                                   (quote ()))))))
                      (else (looper exp scopes))))))
       (if (valid? exp (quote ())) (answer exp (quote ())) #f))))
+
+;1.33
+(define contains-redefinition
+  (lambda (exp)
+    (letrec
+        ((member? (lambda (declaration var)
+                    (cond
+                      ((null? declaration) #f)
+                      ((eqv? (car declaration) var) #t)
+                      (else (member? (cdr declaration) var)))))
+         (exists? (lambda (var scopes)
+                    (cond
+                      ((null? scopes) #f)
+                      ((member? (car scopes) var) #t)
+                      (else (exists? var (cdr scopes))))))
+         (looper (lambda (declarations scopes)
+                   (cond
+                     ((null? declarations) #f)
+                     (else (or (exists? (car declarations) scopes)
+                               (looper (cdr declarations) scopes))))))
+         (applooper (lambda (explist scopes)
+                      (cond
+                        ((null? explist) #t)
+                        (else (and (answer scopes (car explist))
+                                   (applooper (cdr explist) scopes))))))
+         (answer (lambda (exp scopes)
+                   (cond
+                     ((symbol? exp) #f)
+                     ((eqv? (car exp) 'lambda) (or (answer (caddr exp) (cons (cadr exp) scopes))
+                                                   (looper (cadr exp) scopes)))
+                     ((eqv? (car exp) 'if) (or (answer (cadr exp) scopes)
+                                               (or (answer (caddr exp) scopes)
+                                                   (answer (cadddr exp) scopes))))
+                     (else (applooper exp scopes))))))
+      (answer exp (quote ())))))
