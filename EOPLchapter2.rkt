@@ -252,6 +252,17 @@ when the base is high there is less recursive calls for pred and succ
       (app-exp (rator rand) (append (all-ids rator) (all-ids rand)))
       (else (quote ())))))
 
+(define fresh-id
+  (lambda (exp s)
+    (let ((syms (all-ids exp)))
+      (letrec
+          ((loop (lambda (n)
+                   (let ((sym (string->symbol
+                               (string-append s
+                                              (number->string n)))))
+                     (if (memv sym syms) (loop (+ n 1)) sym)))))
+        (loop 0)))))
+
 ;2.11
 ;Pretty sure this works, can't rlly test cus of conflicting data-type defns(why can't we reassign them? lol)
 (define-datatype extended-expression extended-expression?
