@@ -314,3 +314,45 @@ when the base is high there is less recursive calls for pred and succ
                    (let ((newid (fresh-id body id)))
                      (lambda-exp2 newid (lambda-calculus-subst body id newid))))
       (else 'error))))
+
+(define beta-convert
+  (lambda (exp)
+    (cases extended-expression exp
+      (app-exp2 (rator rand)
+                (cases extended-expression rand
+                  (lambda-exp2 (id body)
+                               (lambda-calculus-subst rator body id))
+                  (else 'N/A)))
+      (else 'N/A))))
+
+(define eta-convert
+  (lambda (exp)
+    (letrec
+        ((free?
+          (lambda (exp var)
+            (cases extended-expression exp
+              (var-exp2 (id) (eqv? id var))
+              (lambda-exp2 (id body)
+                           (and (not (eqv? id var))
+                                (free? body var)))
+              (app-exp2 (rator rand)
+                        (or (free? rator)
+                            (free? rand)))
+              (lit-exp2 (num) #f)
+              (primapp-exp (prim rand1 rand2) (or (free? rand1 var)
+                                                  (free? rand2 var))))))
+         (answer
+          (lambda (exp)
+            (cases extended-expression exp
+              (lambda-exp2 (id body)
+                           (cases extended-expression body
+                             (app-exp2 (rator rand)
+                                       (if (eqv? rand id)
+                                           (if (free? rator id) exp rator)
+                                           exp))
+                             (else 'N/A)))
+              (else 'N/A)))))
+      (answer exp))))
+
+;2.13
+;Way 2 lazy for this ngl, its super repetitive...
