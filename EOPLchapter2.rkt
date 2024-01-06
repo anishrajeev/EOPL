@@ -356,3 +356,47 @@ when the base is high there is less recursive calls for pred and succ
 
 ;2.13
 ;Way 2 lazy for this ngl, its super repetitive...
+
+;2.14
+#|
+empty stack = ()
+push element e onto stack s is just (cons e s)
+pop element from stack is just car and returns cdr
+top returns car s and keeps stack as s
+empty-stack? is simply null?
+stacks are equal to lists
+(1 2 3 4) is an example of a stack with 1 ontop and 4 on bottom
+|#
+
+;2.15
+(define empty-stack (lambda () (quote ())))
+
+(define push
+  (lambda (stack elem)
+    (lambda ()
+      (cons elem (stack)))))
+
+(define pop
+  (lambda (stack)
+    (lambda ()
+      (cdr (stack)))))
+
+(define top
+  (lambda (stack)
+    (car (stack))))
+
+(define empty-stack?
+  (lambda (stack)
+    (null? (stack))))
+
+;2.16
+(define list-find-last-position
+  (lambda (list pred)
+    (cond
+      ((null? list) #f)
+      (else
+       (let ((future (list-find-last-position (cdr list) pred)))
+         (cond
+           ((number? future) (+ 1 future))
+           ((pred (car list)) 0)
+           (else #f)))))))
