@@ -400,3 +400,86 @@ stacks are equal to lists
            ((number? future) (+ 1 future))
            ((pred (car list)) 0)
            (else #f)))))))
+
+;2.17
+;Is this the best way to go arnd this? I have to think, may update l8r
+;but for now this works fine
+(define empty-env
+  (lambda ()
+    (lambda (function sym)
+      (function sym
+                (lambda (sym) (eopl:error 'apply-value "~s has no binding%" sym))
+                (lambda (sym) #f)))))
+
+(define extend-env
+  (lambda (syms vals env)
+    (lambda (function sym)
+      (function
+       sym
+       (lambda (sym)
+         (let ((pos (list-find-last-position syms (lambda (s) (eqv? s sym)))))
+           (if (number? pos)
+               (list-ref vals pos)
+               (apply-value env sym))))
+       (lambda (sym)
+         (if (memv sym syms)
+             #t
+             (apply-association env sym)))))))
+
+(define apply-value
+  (lambda (env sym)
+    ((env (lambda (x y z) y) sym) sym)))
+
+(define apply-association
+  (lambda (env sym)
+    ((env (lambda (x y z) z) sym) sym)))
+
+(define has-association?
+  (lambda (env sym)
+    (apply-association env sym)))
+
+;2.18
+(define-datatype environment environment?
+  (empty-env-record)
+  (extended-env-record
+   (syms (list-of symbol?))
+   (vals (list-of scheme-value?))
+   (env environment?)))
+
+(define scheme-value? (lambda (v) #t))
+
+(define environment-to-list
+  (lambda (env)
+    (cases environment env
+      (empty-env-record () '(empty-env-record))
+      (extended-env-record (syms vals env)
+                           (cons 'extended-env-record (cons syms (cons vals (cons (environment-to-list env) (quote ())))))))))
+
+;2.19
+(define-datatype stack stack?
+  (ast-empty-stack)
+  (ast-full-stack
+   (element (lambda (v) #t))
+   (rest stack?)))
+
+(define ast-push
+  (lambda (stk elem)
+    (ast-full-stack elem stk)))
+
+(define ast-pop
+  (lambda (stk)
+    (cases stack stk
+      (ast-empty-stack () (eopl:error 'ast-pop "Can't pop on an empty stack%"))
+      (ast-full-stack (elem rest) rest))))
+
+(define ast-top
+  (lambda (stk)
+    (cases stack stk
+      (ast-empty-stack () (eopl:error 'ast-pop "There's no top on an empty stack%"))
+      (ast-full-stack (elem rest) elem))))
+
+(define ast-empty-stack?
+  (lambda (stk)
+    (cases stack stk
+      (ast-empty-stack () #t)
+      (ast-full-stack (elem rest) #f))))
