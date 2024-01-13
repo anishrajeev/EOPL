@@ -483,3 +483,147 @@ stacks are equal to lists
     (cases stack stk
       (ast-empty-stack () #t)
       (ast-full-stack (elem rest) #f))))
+
+;2.20
+(define has-association-ast?
+  (lambda (sym env)
+    (cases environment env
+      (empty-env-record () #f)
+      (extended-env-record (syms vals env)
+                           (or (memv sym syms)
+                               (has-association-ast? sym env))))))
+
+;2.21: The empty environment, its represented as (() ())
+
+;2.22 NGL this confusese me... 2-element rib as if we didn't already do that earlier in the book?
+
+;2.23
+(define empty-env-rib '(() ()))
+
+(define extend-env-rib
+  (lambda (syms vals env)
+    (cons
+     (append syms (car env))
+     (append vals (cdr env)))))
+
+(define apply-env-rib
+  (lambda (sym env)
+    (let ((index (list-find-last-position (car env) (lambda (x) (eqv? x sym)))))
+      (if (eqv? index #f)
+          (eopl:error 'apply-env-rib "~s isn't associated with a value in this environment%" sym)
+          (list-ref (cadr env) index)))))
+;2.24
+(define constant?
+  (lambda (v) (or (string? v)
+                  (or (number? v)
+                      (or (boolean? v)
+                          (null? v))))))
+
+(define-datatype term term?
+  (var-term
+   (id symbol?))
+  (constant-term
+   (datum constant?))
+  (app-term
+   (terms (list-of term?))))
+
+(define empty-subst-p
+  (lambda ()
+    (lambda (v) (var-term v))))
+
+(define extend-subst-p
+  (lambda (i t s)
+    (lambda (v)
+      (if (eqv? i v) t (apply-subst-p s v)))))
+
+(define apply-subst-p
+  (lambda (s v)
+    (s v)))
+
+(define-datatype subst-ast subst-ast?
+  (empty-subst-ast)
+  (extended-subst-ast
+   (v (lambda (v) #t))
+   (t term?)
+   (subst subst-ast?)))
+
+(define extend-subst-ast
+  (lambda (i t s)
+    (extended-subst-ast i t s)))
+
+(define apply-subst-ast
+  (lambda (s i)
+    (cases subst-ast s
+      (empty-subst-ast () i)
+      (extended-subst-ast (v t subst)
+                          (if (eqv? i v) t (apply-subst-ast subst i))))))
+
+(define subst-in-terms-ast
+  (lambda (t s)
+    (letrec
+        ((looper
+          (lambda (list)
+            (if (null? list) (quote ()) (cons (ans (car list)) (looper (cdr list))))))
+         (ans
+          (lambda (t s)
+            (cases term t
+              (var-term (id) (apply-subst-ast s id))
+              (constant-term (c) c)
+              (app-term (terms) (looper terms))))))
+      (ans t s))))
+
+(define subst-in-terms-p
+  (lambda (t s)
+    (letrec
+        ((looper
+          (lambda (list)
+            (if (null? list) (quote ()) (cons (ans (car list)) (looper (cdr list))))))
+         (ans
+          (lambda (t s)
+            (cases term t
+              (var-term (id) (apply-subst-p s id))
+              (constant-term (c) c)
+              (app-term (terms) (looper terms))))))
+      (ans t s))))
+
+;2.25
+(define unit-subst
+  (lambda (i t)
+    (lambda (v)
+      (if (eqv? i v) t (var-term t)))))
+
+(define compose-substs
+  (lambda (s1 s2)
+    (lambda (v)
+      (apply-subst-p s2 (apply-subst-p s1 v)))))
+
+;Without occurs check t = a and u = (1 2 a)
+;The subst would be a |-> (1 2 a) but
+;subst t = (1 2 a) but subst u has no value
+
+;2.26
+(define-datatype reference reference?
+  (a-ref
+   (position integer?)
+   (vec vector?)))
+
+(define cell
+  (lambda (arg)
+    (let ((ref (a-ref 0 (vector arg))))
+      (letrec
+          ((cell?
+            (lambda ()
+              (reference? ref)))
+           (contents
+            (lambda ()
+              (cases reference ref
+                (a-ref (p v) (vector-ref v p)))))
+           (setcell
+            (lambda (val)
+              (cases reference ref
+                (a-ref (p v) (vector-set! v p val))))))
+        (vector cell? contents setcell)))))
+
+(define cell-get-cell? (lambda (c) (vector-ref c 0)))
+(define cell-get-contents (lambda (c) (vector-ref c 1)))
+(define cell-get-setcell (lambda (c) (vector-ref c 2)))
