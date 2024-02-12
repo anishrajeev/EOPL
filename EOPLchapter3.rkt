@@ -3,6 +3,7 @@
 SCANNER AND GRAMMAR DEFINITIONS FOR SLLGEN
 -------------------------------------------------
 |#
+
 (define scanner-3-1
   '((white-sp
      (whitespace) skip)
@@ -26,6 +27,12 @@ SCANNER AND GRAMMAR DEFINITIONS FOR SLLGEN
     (expression
      (primitive "(" (separated-list expression ",") ")")
      primapp-exp)
+    (expression
+     ("emptylist")
+     emptylist-exp)
+    (expression
+     ("if" expression "then" expression "else" expression)
+     if-exp)
     (primitive ("+")
                add-prim)
     (primitive ("-")
@@ -35,78 +42,47 @@ SCANNER AND GRAMMAR DEFINITIONS FOR SLLGEN
     (primitive ("add1")
                incr-prim)
     (primitive ("sub1")
-               decr-prim)))
+               decr-prim)
+    (primitive ("print")
+               print-prim)
+    (primitive ("minus")
+               minus-prim)
+    (primitive ("cons")
+               cons-prim)
+    (primitive ("car")
+               car-prim)
+    (primitive ("cdr")
+               cdr-prim)
+    (primitive ("list")
+               list-prim)
+    (primitive ("setcar")
+               setcar-prim)
+    (primitive ("equal?")
+               equal-prim)
+    (primitive ("zero?")
+               zero-prim)
+    (primitive ("greater?")
+               greater-prim)
+    (primitive ("null?")
+               null-prim)))
 
 (define scan&parse
   (sllgen:make-string-parser
    scanner-3-1
    grammar-3-1))
 
+(define true-value?
+  (lambda (x)
+    (not (zero? x))))
+
 (sllgen:make-define-datatypes scanner-3-1 grammar-3-1)
 
-#|
-END OF DEFINITIONS
--------------------------------------------------
-|#
-
-;3.1
-(define list-of
-  (lambda (pred)
-    (lambda (list)
-      (or (null? list)
-          (and (pred (car list))
-               ((list-of pred) (cdr list)))))))
-
-#|(define-datatype program program?
-  (a-program
-   (exp expression?)))
-
-(define-datatype expression expression?
-  (lit-exp
-   (datum number?))
-  (var-exp
-   (id symbol?))
-  (primapp-exp
-   (prim primitive?)
-   (rands (list-of expression?))))
-
-(define-datatype primitive primitive?
-  (add-prim)
-  (subtract-prim)
-  (mult-prim)
-  (incr-prim)
-  (decr-prim))|#
-
-(define foldr
-  (lambda (list map accum base)
-    (if (null? list)
-        base
-        (accum (map (car list)) (foldr (cdr list) map accum base)))))
-
-(define program-to-list
-  (lambda (ast)
-    (cond
-      ((program? ast)
-       (cases program ast
-         (a-program (exp) (cons 'a-program (cons (program-to-list exp) (quote ()))))))
-      ((expression? ast)
-       (cases expression ast
-         (lit-exp (datum) (list 'lit-exp datum))
-         (var-exp (id) (list 'var-exp id))
-         (primapp-exp (prim rands)
-                      (cons 'primapp-exp
-                      (cons (program-to-list prim)
-                            (cons (foldr rands program-to-list cons (quote ()))
-                                  (quote ())))))))
-      ((primitive? ast)
-       (cases primitive ast
-         (add-prim () '(add-prim))
-         (subtract-prim () '(subtract-prim))
-         (mult-prim () '(mult-prim))
-         (incr-prim () '(incr-prim))
-         (decr-prim () '(decr-prim))))
-      (else (eopl:error 'program-to-list "Parsing error; ast has undefined datatypes%")))))
-
+(define run
+  (lambda (x)
+    (let ((ast (scan&parse x)))
+      (if (validate-ast ast)
+          (eval-program ast)
+          (eopl:error 'run "Wrong amount of arguments in 1 or more statements%")))))
 #|
 HERE IS THE SIMPLE INTERPRETER PROVIDED
 ----------------------------------------
@@ -125,7 +101,12 @@ HERE IS THE SIMPLE INTERPRETER PROVIDED
       (var-exp (id) (apply-env env id))
       (primapp-exp (prim rands)
                    (let ((args (eval-rands rands env)))
-                     (apply-primitive prim args))))))
+                     (apply-primitive prim args env)))
+      (emptylist-exp () (quote ()))
+      (if-exp (cond true false)
+              (if (true-value? (eval-expression cond env))
+                  (eval-expression true env)
+                  (eval-expression false env))))))
 
 (define eval-rands
   (lambda (rands env)
@@ -136,13 +117,26 @@ HERE IS THE SIMPLE INTERPRETER PROVIDED
     (eval-expression rand env)))
 
 (define apply-primitive
-  (lambda (prim args)
+  (lambda (prim args env)
     (cases primitive prim
       (add-prim () (+ (car args) (cadr args)))
       (subtract-prim () (- (car args) (cadr args)))
       (mult-prim () (* (car args) (cadr args)))
       (incr-prim () (+ (car args) 1))
-      (decr-prim () (- (car args) 1)))))
+      (decr-prim () (- (car args) 1))
+      (print-prim () (let ()
+                       (display (car args))
+                       1))
+      (minus-prim () (* -1 (car args)))
+      (cons-prim () (cons (car args) (cadr args)))
+      (car-prim () (car (car args)))
+      (cdr-prim () (cdr (car args)))
+      (list-prim () args)
+      (setcar-prim () (cons (cadr args) (cdar args)))
+      (equal-prim () (if (eqv? (car args) (cadr args)) 1 0))
+      (zero-prim () (if (zero? (car args)) 1 0))
+      (greater-prim () (if (> (car args) (cadr args)) 1 0))
+      (null-prim () (if (null? (car args)) 1 0)))))
 
 (define empty-env
   (lambda ()
@@ -174,14 +168,29 @@ HERE IS THE SIMPLE INTERPRETER PROVIDED
      (empty-env))))
 
 #|
-END OF DEFINITION
---------------------------------------------------------------------------------
+END OF DEFINITIONS
+-------------------------------------------------
 |#
+(define list-of
+  (lambda (predicate)
+    (lambda (lst)
+      (cond
+        ((null? lst) #t)
+        ((predicate (car lst)) ((list-of predicate) (cdr lst)))
+        (else #f)))))
 
-;3.2 No this shouldn't as we don't ever reassign anything and there
-;is no possible ambiguity of semantics(i.e. there is no ambiguity between
-;what to do first, we first evaluate sub exp then the main... currently
-;it is evaluated by a dfs kinda approach that goes deeper first
+;3.1
+#|(define program-to-list
+  (lambda (exp)
+    (cases program exp
+        (a-program (exp)
+                   (expression-to-list exp)))))
+(define expression-to-list
+  (lambda (exp)
+    (cases expression exp
+      (lit-exp (n) (list 'lit-exp n))
+      (var-exp (s) (list 'var-exp s))
+      (primapp-exp (p r) (list 'primapp-exp p (map (lambda (rand) expression-to-list rand) r))))))
 
 ;3.3
 (define parse-program
@@ -192,14 +201,39 @@ END OF DEFINITION
             (cond
               ((number? data) (lit-exp data))
               ((symbol? data) (var-exp data))
-              ((eqv? (car data) '+) (primapp-exp (add-prim) (foldr (cdr data) parse cons (quote ()))))
-              ((eqv? (car data) '-) (primapp-exp (subtract-prim) (foldr (cdr data) parse cons (quote ()))))
-              ((eqv? (car data) '*) (primapp-exp (mult-prim) (foldr (cdr data) parse cons (quote ()))))
-              ((eqv? (car data) 'add1) (primapp-exp (incr-prim) (foldr (cdr data) parse cons (quote ()))))
-              ((eqv? (car data) 'sub1) (primapp-exp (decr-prim) (foldr (cdr data) parse cons (quote ())))))))
-         (user
-          (lambda ()
-            (a-program (parse data)))))
-      (user))))
+              ((eqv? (car data) '+) (primapp-exp (add-prim) (map parse (cdr data))))
+              ((eqv? (car data) '-) (primapp-exp (subtract-prim) (map parse (cdr data))))
+              ((eqv? (car data) '*) (primapp-exp (mult-prim) (map parse (cdr data))))
+              ((eqv? (car data) 'add1) (primapp-exp (incr-prim) (map parse (cdr data))))
+              ((eqv? (car data) 'sub1) (primapp-exp (decr-prim) (map parse (cdr data))))))))
+      (a-program (parse data)))))|#
 
-;3.7
+;3.9
+(define validate-ast
+  (lambda (ast)
+    (cases program ast
+      (a-program (exp)
+                 (cases expression exp
+                   (lit-exp (n) #t)
+                   (var-exp (n) #t)
+                   (primapp-exp (p r)
+                                (cases primitive p
+                                  (add-prim () (= (length r) 2))
+                                  (subtract-prim () (= (length r) 2))
+                                  (mult-prim () (= (length r) 2))
+                                  (incr-prim () (= (length r) 1))
+                                  (decr-prim () (= (length r) 1))
+                                  (print-prim () (= (length r) 1))
+                                  (minus-prim () (= (length r) 1))
+                                  (cons-prim () (= (length r) 2))
+                                  (car-prim () (= (length r) 1))
+                                  (cdr-prim () (= (length r) 1))
+                                  (list-prim () #t)
+                                  (setcar-prim () (= (length r) 2))
+                                  (equal-prim () (= (length r) 2))
+                                  (zero-prim () (= (length r) 1))
+                                  (greater-prim () (= (length r) 2))
+                                  (null-prim () (= (length r) 1))))
+                   (emptylist-exp () #t)
+                   (if-exp (a b c) #t))))))
+
