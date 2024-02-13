@@ -33,6 +33,9 @@ SCANNER AND GRAMMAR DEFINITIONS FOR SLLGEN
     (expression
      ("if" expression "then" expression "else" expression)
      if-exp)
+    (expression
+     ("cond" (arbno expression expression) "end")
+     cond-exp)
     (primitive ("+")
                add-prim)
     (primitive ("-")
@@ -106,7 +109,13 @@ HERE IS THE SIMPLE INTERPRETER PROVIDED
       (if-exp (cond true false)
               (if (true-value? (eval-expression cond env))
                   (eval-expression true env)
-                  (eval-expression false env))))))
+                  (eval-expression false env)))
+      (cond-exp (test-exps condseq-exps)
+                (if (null? test-exps)
+                    0
+                    (if (true-value? (eval-expression (car test-exps) env))
+                        (eval-expression (car condseq-exps) env)
+                        (eval-expression (cond-exp (cdr test-exps) (cdr condseq-exps)) env)))))))
 
 (define eval-rands
   (lambda (rands env)
@@ -235,5 +244,6 @@ END OF DEFINITIONS
                                   (greater-prim () (= (length r) 2))
                                   (null-prim () (= (length r) 1))))
                    (emptylist-exp () #t)
-                   (if-exp (a b c) #t))))))
+                   (if-exp (a b c) #t)
+                   (cond-exp (a b) #t))))))
 
