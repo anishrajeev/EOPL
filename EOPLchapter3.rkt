@@ -36,6 +36,12 @@ SCANNER AND GRAMMAR DEFINITIONS FOR SLLGEN
     (expression
      ("cond" (arbno expression expression) "end")
      cond-exp)
+    (expression
+     ("let" (arbno identifier "=" expression) "in" expression)
+     let-exp)
+    (expression
+     ("unpack" (arbno identifier) "=" expression "in" expression)
+     unpack-exp)
     (primitive ("+")
                add-prim)
     (primitive ("-")
@@ -67,7 +73,9 @@ SCANNER AND GRAMMAR DEFINITIONS FOR SLLGEN
     (primitive ("greater?")
                greater-prim)
     (primitive ("null?")
-               null-prim)))
+               null-prim)
+    (primitive ("eq?")
+               eq-prim)))
 
 (define scan&parse
   (sllgen:make-string-parser
@@ -110,12 +118,21 @@ HERE IS THE SIMPLE INTERPRETER PROVIDED
               (if (true-value? (eval-expression cond env))
                   (eval-expression true env)
                   (eval-expression false env)))
+      
       (cond-exp (test-exps condseq-exps)
                 (if (null? test-exps)
                     0
                     (if (true-value? (eval-expression (car test-exps) env))
                         (eval-expression (car condseq-exps) env)
-                        (eval-expression (cond-exp (cdr test-exps) (cdr condseq-exps)) env)))))))
+                        (eval-expression (cond-exp (cdr test-exps) (cdr condseq-exps)) env))))
+      (let-exp (ids rands body)
+               (let ((args (eval-rands rands env)))
+                 (eval-expression body (extend-env ids args env))))
+      (unpack-exp (ids list body)
+                  (let ((args (eval-expression list env)))
+                    (if (eqv? (length args) (length ids))
+                        (eval-expression body (extend-env ids args env))
+                        (eopl:error 'eval-expression "Wrong number of arguments given to unpack")))))))
 
 (define eval-rands
   (lambda (rands env)
@@ -142,10 +159,11 @@ HERE IS THE SIMPLE INTERPRETER PROVIDED
       (cdr-prim () (cdr (car args)))
       (list-prim () args)
       (setcar-prim () (cons (cadr args) (cdar args)))
-      (equal-prim () (if (eqv? (car args) (cadr args)) 1 0))
+      (equal-prim () (if (= (car args) (cadr args)) 1 0))
       (zero-prim () (if (zero? (car args)) 1 0))
       (greater-prim () (if (> (car args) (cadr args)) 1 0))
-      (null-prim () (if (null? (car args)) 1 0)))))
+      (null-prim () (if (null? (car args)) 1 0))
+      (eq-prim () (if (= (car args) (cadr args)) 1 0)))))
 
 (define empty-env
   (lambda ()
@@ -171,10 +189,7 @@ HERE IS THE SIMPLE INTERPRETER PROVIDED
 
 (define init-env
   (lambda ()
-    (extend-env
-     '(i v x)
-     '(1 5 10)
-     (empty-env))))
+    (empty-env)))
 
 #|
 END OF DEFINITIONS
@@ -242,8 +257,11 @@ END OF DEFINITIONS
                                   (equal-prim () (= (length r) 2))
                                   (zero-prim () (= (length r) 1))
                                   (greater-prim () (= (length r) 2))
-                                  (null-prim () (= (length r) 1))))
+                                  (null-prim () (= (length r) 1))
+                                  (eq-prim () (= (length r) 2))))
                    (emptylist-exp () #t)
                    (if-exp (a b c) #t)
-                   (cond-exp (a b) #t))))))
+                   (cond-exp (a b) #t)
+                   (let-exp (a b c) #t)
+                   (unpack-exp (a b c) #t))))))
 
