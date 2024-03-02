@@ -41,7 +41,13 @@ SCANNER AND GRAMMAR DEFINITIONS FOR SLLGEN
      let-exp)
     (expression
      ("unpack" (arbno identifier) "=" expression "in" expression)
-     unpack-exp)
+     unpack-exp) 
+    (expression
+     ("proc" "(" (separated-list identifier ",") ")" expression)
+     proc-exp)
+    (expression
+     ("(" expression (arbno expression) ")")
+     app-exp)
     (primitive ("+")
                add-prim)
     (primitive ("-")
@@ -76,6 +82,20 @@ SCANNER AND GRAMMAR DEFINITIONS FOR SLLGEN
                null-prim)
     (primitive ("eq?")
                eq-prim)))
+
+(define-datatype procval procval?
+  (closure
+   (ids (list-of symbol?))
+   (body expression?)
+   (env (lambda (x) #t))))
+
+(define apply-proc
+  (lambda (proc args)
+    (cases procval proc
+      (closure (ids body env)
+                 (if (eqv? (length ids) (length args))
+                     (eval-expression body (extend-env ids args env))
+                     (eopl:error 'apply-proc "Wrong number of arguments fed to procedure"))))))
 
 (define scan&parse
   (sllgen:make-string-parser
@@ -132,7 +152,15 @@ HERE IS THE SIMPLE INTERPRETER PROVIDED
                   (let ((args (eval-expression list env)))
                     (if (eqv? (length args) (length ids))
                         (eval-expression body (extend-env ids args env))
-                        (eopl:error 'eval-expression "Wrong number of arguments given to unpack")))))))
+                        (eopl:error 'eval-expression "Wrong number of arguments given to unpack"))))
+      (proc-exp (ids body)
+                (closure ids body env))
+      (app-exp (rator rands)
+               (let ((pclosure (eval-expression rator env))
+                     (args (eval-rands rands env)))
+                 (if (procval? pclosure)
+                     (apply-proc pclosure args)
+                     (eopl:error 'eval-expression "Tried to apply paramters to the non procedure ~s" rator)))))))
 
 (define eval-rands
   (lambda (rands env)
@@ -178,7 +206,9 @@ HERE IS THE SIMPLE INTERPRETER PROVIDED
             (cond
               ((null? list) #f)
               ((eqv? (car list) sym) 0)
-              (else (+ 1 (list-index (cdr list) sym)))))))
+              (else
+               (let ((rest (list-index (cdr list) sym)))
+                 (if (number? rest) (+ 1 rest) #f)))))))
       (lambda (sym)
         (let ((index (list-index syms sym)))
           (if (number? index) (list-ref vals index) (apply-env env sym)))))))
@@ -263,5 +293,12 @@ END OF DEFINITIONS
                    (if-exp (a b c) #t)
                    (cond-exp (a b) #t)
                    (let-exp (a b c) #t)
-                   (unpack-exp (a b c) #t))))))
+                   (unpack-exp (a b c) #t)
+                   (proc-exp (ids body) #t)
+                   (app-exp (rator rands) #t))))))
 
+;factorial function
+;(run "let fact = proc (n, f) if zero? (n) then 1 else * (n, (f - (n, 1) f)) in (fact 5 fact)")
+
+;even odd function
+;(run "let even = proc (n, o, e) if zero? (n) then 1 else (o -(n, 1) o e) odd = proc (n, o, e) if zero? (n) then 0 else (e -(n, 1) o e) in (even 13 odd even)")
