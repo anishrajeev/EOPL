@@ -49,7 +49,7 @@ SCANNER AND GRAMMAR DEFINITIONS FOR SLLGEN
      ("(" expression (arbno expression) ")")
      app-exp)
     (expression
-     ("lexvaryoucan'tmatchthis" identifier number number)
+     ("lexvaryoucan'tmatchthis" number)
      lexvar-exp)
     (primitive ("+")
                add-prim)
@@ -88,17 +88,17 @@ SCANNER AND GRAMMAR DEFINITIONS FOR SLLGEN
 
 (define-datatype procval procval?
   (closure
-   (ids (list-of symbol?))
+   (argnum number?)
    (body expression?)
    (env (lambda (x) #t))))
 
 (define apply-proc
   (lambda (proc args)
     (cases procval proc
-      (closure (ids body env)
-                 (if (eqv? (length ids) (length args))
-                     (eval-expression body (extend-env ids args env))
-                     (eopl:error 'apply-proc "Wrong number of arguments fed to procedure"))))))
+      (closure (argnum body env)
+                 (if (eqv? argnum (length args))
+                     (eval-expression body (extend-nameless-env args env))
+                     (eopl:error 'apply-proc "Wrong number of arguments fed to procedure%"))))))
 
 (define scan&parse
   (sllgen:make-string-parser
@@ -115,7 +115,7 @@ SCANNER AND GRAMMAR DEFINITIONS FOR SLLGEN
   (lambda (x)
     (let ((ast (scan&parse x)))
       (if (validate-ast ast)
-          (eval-program ast)
+          (eval-program (lexicald ast))
           (eopl:error 'run "Wrong amount of arguments in 1 or more statements%")))))
 #|
 HERE IS THE SIMPLE INTERPRETER PROVIDED
@@ -126,13 +126,13 @@ HERE IS THE SIMPLE INTERPRETER PROVIDED
   (lambda (pgm)
     (cases program pgm
       (a-program (body)
-                 (eval-expression body (init-env))))))
+                 (eval-expression body empty-nameless-env)))))
 
 (define eval-expression
   (lambda (exp env)
     (cases expression exp
       (lit-exp (datum) datum)
-      (var-exp (id) (apply-env env id))
+      (var-exp (id) 0)
       (primapp-exp (prim rands)
                    (let ((args (eval-rands rands env)))
                      (apply-primitive prim args env)))
@@ -141,7 +141,6 @@ HERE IS THE SIMPLE INTERPRETER PROVIDED
               (if (true-value? (eval-expression cond env))
                   (eval-expression true env)
                   (eval-expression false env)))
-      
       (cond-exp (test-exps condseq-exps)
                 (if (null? test-exps)
                     0
@@ -150,21 +149,23 @@ HERE IS THE SIMPLE INTERPRETER PROVIDED
                         (eval-expression (cond-exp (cdr test-exps) (cdr condseq-exps)) env))))
       (let-exp (ids rands body)
                (let ((args (eval-rands rands env)))
-                 (eval-expression body (extend-env ids args env))))
+                 (eval-expression body (extend-nameless-env args env))))
       (unpack-exp (ids list body)
                   (let ((args (eval-expression list env)))
                     (if (eqv? (length args) (length ids))
-                        (eval-expression body (extend-env ids args env))
-                        (eopl:error 'eval-expression "Wrong number of arguments given to unpack"))))
+                        (eval-expression body (extend-nameless-env args env))
+                        (eopl:error 'eval-expression "Wrong number of arguments given to unpack%"))))
       (proc-exp (ids body)
-                (closure ids body env))
+                (closure (length ids) body env))
       (app-exp (rator rands)
                (let ((pclosure (eval-expression rator env))
                      (args (eval-rands rands env)))
                  (if (procval? pclosure)
                      (apply-proc pclosure args)
-                     (eopl:error 'eval-expression "Tried to apply paramters to the non procedure ~s" rator))))
-      (lexvar-exp (v d p) 0))))
+                     (eopl:error 'eval-expression "Tried to apply paramters to the non procedure ~s%" rator))))
+      (lexvar-exp (d) (if (eqv? -1 d)
+                          (eopl:error 'eval-expression "Couldn't find variable%")
+                          (apply-nameless-env env d))))))
 
 (define eval-rands
   (lambda (rands env)
@@ -217,6 +218,13 @@ HERE IS THE SIMPLE INTERPRETER PROVIDED
         (let ((index (list-index syms sym)))
           (if (number? index) (list-ref vals index) (apply-env env sym)))))))
 
+(define index
+  (lambda (lst val i)
+    (cond
+      ((null? lst) -1)
+      ((eq? (car lst) val) i)
+      (else (index (cdr lst) val (+ i 1))))))
+
 (define apply-env
   (lambda (env sym)
     (env sym)))
@@ -224,6 +232,16 @@ HERE IS THE SIMPLE INTERPRETER PROVIDED
 (define init-env
   (lambda ()
     (empty-env)))
+
+(define empty-nameless-env '())
+
+(define extend-nameless-env
+  (lambda (vals env)
+    (append vals env)))
+
+(define apply-nameless-env
+  (lambda (env d)
+    (list-ref env d)))
 
 #|
 END OF DEFINITIONS
@@ -300,7 +318,7 @@ END OF DEFINITIONS
                    (unpack-exp (a b c) #t)
                    (proc-exp (ids body) #t)
                    (app-exp (rator rands) #t)
-                   (lexvar-exp (v d p) #t))))))
+                   (lexvar-exp (d) #t))))))
 
 ;factorial function
 ;(run "let fact = proc (n, f) if zero? (n) then 1 else * (n, (f - (n, 1) f)) in (fact 5 fact)")
@@ -317,37 +335,20 @@ END OF DEFINITIONS
   (lambda (exp env)
     (cases expression exp
       (lit-exp (n) (lit-exp n))
-      (var-exp (v)
-               (letrec
-                   ((finder
-                    (lambda (aenv d)
-                      (cond
-                        ((null? aenv) (cons -1 (cons -1 '())))
-                        (else (if (list? (member v (car aenv)))
-                                  (cons d (cons (index (car aenv) 0) '()))
-                                  (finder (cdr aenv) (+ d 1)))))))
-                    (index
-                     (lambda (lst p)
-                       (cond
-                         ((null? lst) -1)
-                         ((eqv? (car lst) v) p)
-                         (else (index (cdr lst) (+ 1 p)))))))
-                 (let ((dp (finder env 0)))
-                   (lexvar-exp v (car dp) (cadr dp)))))
+      (var-exp (v) (lexvar-exp (index env v 0)))
       (primapp-exp (p r) (primapp-exp p (map (lambda (x) (lexicald-exp x env)) r)))
       (emptylist-exp () emptylist-exp)
       (if-exp (a b c) (if-exp (lexicald-exp a env) (lexicald-exp b env) (lexicald-exp c env)))
-      (cond-exp (conds reses) (cond-exp (map (lambda (x) (lexicald-exp x env)) conds)
-                                        (map (lambda (x) (lexicald-exp x env)) reses)))
+      (cond-exp (a b) (cond-exp (lexicald-exp a env) (lexicald-exp b env)))
       (let-exp (ids rands body)
-               (let ((eenv (cons ids env)))
+               (let ((eenv (append ids env)))
                  (let-exp ids
                           (map (lambda (x) (lexicald-exp x env)) rands)
                           (lexicald-exp body eenv))))
       (unpack-exp (ids vals body)
                   (unpack-exp ids
                               (map (lambda (val) (lexicald-exp val env)) vals)
-                              (lexicald-exp body (cons ids env))))
-      (proc-exp (ids body) (proc-exp ids (lexicald-exp body (cons ids env))))
+                              (lexicald-exp body (append ids env))))
+      (proc-exp (ids body) (proc-exp ids (lexicald-exp body (append ids env))))
       (app-exp (appl args) (app-exp (lexicald-exp appl env) (map (lambda (x) (lexicald-exp x env)) args)))
-      (lexvar-exp (v d p) (lexvar-exp (v d p))))))
+      (lexvar-exp (d) (lexvar-exp (d))))))
